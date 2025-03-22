@@ -45,22 +45,17 @@ func CountLines(config ProlocConfig) error {
 	// reducer
 	var count uint64 = 0
 	totalFiles := 0
-	dirsLineCount := map[string]uint64{}
 	for fs := range fsChan {
 		if fs.err != nil {
 			return fs.err
 		}
 		if fs.fileStats != nil {
-			if _, ok := dirsLineCount[fs.fileStats.parentDir]; !ok {
-				dirsLineCount[fs.fileStats.parentDir] = 0
-			}
 			count += fs.fileStats.linesCount
-			dirsLineCount[fs.fileStats.parentDir] += fs.fileStats.linesCount
 			totalFiles += 1
 		}
 	}
-	fmt.Printf("total dirs = %s | total files = %s | total lines count = %s\n",
-		formatNumber(uint64(len(dirsLineCount))), formatNumber(uint64(totalFiles)), formatNumber(count))
+	fmt.Printf("total files = %s | total lines count = %s\n",
+		formatNumber(uint64(totalFiles)), formatNumber(count))
 	return nil
 }
 
