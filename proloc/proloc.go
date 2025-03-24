@@ -2,114 +2,100 @@ package proloc
 
 import (
 	"fmt"
-	"os"
-	"path"
 	"strings"
 	"sync"
+
+	"github.com/dustin/go-humanize"
 )
 
 type ProlocConfig struct {
-	Project string
-	Ignore  []string
+	Project  string
+	Ignore   []string
+	MaxDepth uint64
 }
 
 type fileStats struct {
-	parentDir  string
 	filename   string
 	linesCount uint64
-}
-
-type dirStats struct {
-	dirName   string
-	parentDir *string
 }
 
 type statsOrError struct {
 	err       error
 	fileStats *fileStats
-	dirStats  *dirStats
 }
 
 func CountLines(config ProlocConfig) error {
 	fsChan := make(chan statsOrError)
+	cMap := initChildrenMap()
+	pMap := initParentMap()
+
+	ntMap := initNodeTypeMap()
+	ntMap.addNodeType(config.Project, dirType)
 
 	// mapper routine
 	go func() {
 		wg := &sync.WaitGroup{}
 		wg.Add(1)
-		go readFileStatsForDir(config.Project, nil, config.Ignore, wg, fsChan)
+		go readFileStatsForDir(config.Project, config.Ignore, wg, fsChan, cMap, pMap, ntMap)
 		wg.Wait()
 		close(fsChan)
 	}()
 
 	// reducer
-	var count uint64 = 0
-	totalFiles := 0
+	lcMap := initLineCountMap()
 	for fs := range fsChan {
 		if fs.err != nil {
 			return fs.err
 		}
 		if fs.fileStats != nil {
-			count += fs.fileStats.linesCount
-			totalFiles += 1
-		}
-	}
-	fmt.Printf("total files = %s | total lines count = %s\n",
-		formatNumber(uint64(totalFiles)), formatNumber(count))
-	return nil
-}
-
-func readFileStatsForDir(dirName string, parentDir *string, ignore []string, wg *sync.WaitGroup, fsChan chan statsOrError) {
-	defer wg.Done()
-
-	fsChan <- statsOrError{
-		dirStats: &dirStats{
-			dirName:   dirName,
-			parentDir: parentDir,
-		},
-	}
-
-	dir, err := os.ReadDir(dirName)
-	if err != nil {
-		fsChan <- statsOrError{err: err}
-	}
-
-	for _, child := range dir {
-		childPath := path.Join(dirName, child.Name())
-		if ignoreFile(childPath, ignore) {
-			continue
-		}
-		if child.IsDir() {
-			wg.Add(1)
-			go readFileStatsForDir(childPath, parentDir, ignore, wg, fsChan)
-		} else {
-			if child.Type() != os.ModeSymlink {
-				wg.Add(1)
-				go readStatsForFile(childPath, dirName, wg, fsChan)
+			lineCount := fs.fileStats.linesCount
+			fileName := fs.fileStats.filename
+			lcMap.addLineCount(fileName, lineCount)
+			parent := pMap.getParent(fileName)
+			for parent != "" {
+				lcMap.addLineCount(parent, lineCount)
+				parent = pMap.getParent(parent)
 			}
 		}
 	}
+
+	totalFiles := 0
+	totalDirs := 0
+	fmt.Println("Line Count\t\tName")
+	fmt.Println("----------\t\t----")
+	formatLineCount(config.Project, "", 0, config.MaxDepth, cMap, lcMap, ntMap, &totalFiles, &totalDirs)
+	fmt.Printf("lines count = %s, files = %s, dirs = %s\n",
+		humanize.Comma(int64(lcMap.getLineCount(config.Project))),
+		humanize.Comma(int64(totalFiles)), humanize.Comma(int64(totalDirs)))
+
+	return nil
 }
 
-func readStatsForFile(filename, parentDir string, wg *sync.WaitGroup, fsChan chan statsOrError) {
-	defer wg.Done()
-
-	linesCount := calculateLinesCount(filename)
-	fsChan <- statsOrError{
-		err: nil,
-		fileStats: &fileStats{
-			linesCount: linesCount,
-			filename:   filename,
-			parentDir:  parentDir,
-		},
+func formatLineCount(node string, parent string,
+	depth int, maxDepth uint64,
+	cMap *childrenMap, lcMap *lineCountMap, ntMap *nodeTypeMap,
+	totalFiles, totalDirs *int) {
+	if maxDepth != 0 && depth > int(maxDepth) {
+		return
 	}
-}
 
-func ignoreFile(path string, ignore []string) bool {
-	for _, ignorePattern := range ignore {
-		if strings.Contains(path, ignorePattern) {
-			return true
-		}
+	if ntMap.getNodeType(node) == fileType {
+		*totalFiles += 1
+	} else if ntMap.getNodeType(node) == dirType {
+		*totalDirs += 1
 	}
-	return false
+
+	nodeName := node
+	if parent != "" {
+		nodeName = strings.Replace(nodeName, fmt.Sprintf("%s/", parent), "", 1)
+	}
+	fmt.Printf("%s\t\t\t%s%s\n", humanize.Comma(int64(lcMap.getLineCount(node))), strings.Repeat("  ", depth), nodeName)
+
+	if ntMap.getNodeType(node) == fileType {
+		return
+	}
+
+	for _, child := range cMap.getChildren(node) {
+		formatLineCount(child, node, depth+1, maxDepth, cMap, lcMap, ntMap, totalFiles, totalDirs)
+	}
 }

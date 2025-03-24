@@ -22,11 +22,16 @@ func main() {
 				Name:  "ignore",
 				Usage: "glob patterns to ignore",
 			},
+			&cli.Uint64Flag{
+				Name:  "max-depth",
+				Usage: "print the total for the directories (or file) only if is N or fewer levels",
+			},
 		},
 		Action: func(ctx *cli.Context) error {
 			config := proloc.ProlocConfig{
-				Project: ctx.String("project"),
-				Ignore:  ctx.StringSlice("ignore"),
+				Project:  ctx.String("project"),
+				Ignore:   ctx.StringSlice("ignore"),
+				MaxDepth: ctx.Uint64("max-depth"),
 			}
 			return proloc.CountLines(config)
 		},
