@@ -59,11 +59,12 @@ func CountLines(config ProlocConfig) error {
 		}
 	}
 
+	maxLineCount := lcMap.getLineCount(config.Project)
+	maxDigits := len(humanize.Comma(int64(maxLineCount))) + 2
+
 	totalFiles := 0
 	totalDirs := 0
-	fmt.Println("Line Count\t\tName")
-	fmt.Println("----------\t\t----")
-	formatLineCount(config.Project, "", 0, config.MaxDepth, cMap, lcMap, ntMap, &totalFiles, &totalDirs)
+	formatLineCount(config.Project, "", 0, config.MaxDepth, maxDigits, cMap, lcMap, ntMap, &totalFiles, &totalDirs)
 	fmt.Printf("lines count = %s, files = %s, dirs = %s\n",
 		humanize.Comma(int64(lcMap.getLineCount(config.Project))),
 		humanize.Comma(int64(totalFiles)), humanize.Comma(int64(totalDirs)))
@@ -72,7 +73,7 @@ func CountLines(config ProlocConfig) error {
 }
 
 func formatLineCount(node string, parent string,
-	depth int, maxDepth uint64,
+	depth int, maxDepth uint64, maxDigits int,
 	cMap *childrenMap, lcMap *lineCountMap, ntMap *nodeTypeMap,
 	totalFiles, totalDirs *int) {
 	if maxDepth != 0 && depth > int(maxDepth) {
@@ -89,13 +90,13 @@ func formatLineCount(node string, parent string,
 	if parent != "" {
 		nodeName = strings.Replace(nodeName, fmt.Sprintf("%s/", parent), "", 1)
 	}
-	fmt.Printf("%s\t\t\t%s%s\n", humanize.Comma(int64(lcMap.getLineCount(node))), strings.Repeat("  ", depth), nodeName)
+	fmt.Printf("%-*s%s%s\n", maxDigits, humanize.Comma(int64(lcMap.getLineCount(node))), strings.Repeat("  ", depth), nodeName)
 
 	if ntMap.getNodeType(node) == fileType {
 		return
 	}
 
 	for _, child := range cMap.getChildren(node) {
-		formatLineCount(child, node, depth+1, maxDepth, cMap, lcMap, ntMap, totalFiles, totalDirs)
+		formatLineCount(child, node, depth+1, maxDepth, maxDigits, cMap, lcMap, ntMap, totalFiles, totalDirs)
 	}
 }
